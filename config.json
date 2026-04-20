@@ -19,5 +19,6 @@
   "pre_norm": false,
   "initializer_factor": 0.05,
   "model_type": "time_series_transformer",
-  "torch_dtype": "float32"
+  "torch_dtype": "float32",
+  "transformers_version": "5.5.4"
 }

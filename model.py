@@ -42,11 +42,11 @@ class SymTimeModel(PreTrainedModel):
         self.encoder = TSTEncoder(
             patch_size=config.patch_size,
             num_layers=config.num_layers,
-            hidden_size=config.hidden_size,
+            hidden_size=config.d_model,
             num_heads=config.num_heads,
             d_ff=config.d_ff,
             norm=config.norm,
-            attn_dropout=config.attn_dropout,
+            attn_dropout=config.dropout,
             dropout=config.dropout,
             act=config.act,
             pre_norm=config.pre_norm,
