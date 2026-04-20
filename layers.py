@@ -39,13 +39,13 @@ class Transpose(nn.Module):
 class PositionalEmbedding(nn.Module):
     """Adding the positional encoding to the input for Transformer"""
 
-    def __init__(self, d_model: int, max_len: int = 5000) -> None:
+    def __init__(self, hidden_size: int, max_len: int = 5000) -> None:
         super(PositionalEmbedding, self).__init__()
 
         # Calculate the positional encoding once in the logarithmic space.
         pe = torch.zeros(
-            max_len, d_model
-        ).float()  # Initialize a tensor of zeros with shape (max_len, d_model) to store positional encodings
+            max_len, hidden_size
+        ).float()  # Initialize a tensor of zeros with shape (max_len, hidden_size) to store positional encodings
         pe.requires_grad = (
             False  # Positional encodings do not require gradients as they are fixed
         )
@@ -54,7 +54,7 @@ class PositionalEmbedding(nn.Module):
             torch.arange(0, max_len).float().unsqueeze(1)
         )  # Generate a sequence from 0 to max_len-1 and add a dimension at the 1st axis
         div_term = (
-            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+            torch.arange(0, hidden_size, 2).float() * -(math.log(10000.0) / hidden_size)
         ).exp()  # Calculate the divisor term in the positional encoding formula
 
         pe[:, 0::2] = torch.sin(
@@ -66,7 +66,7 @@ class PositionalEmbedding(nn.Module):
 
         pe = pe.unsqueeze(
             0
-        )  # Add a batch dimension, changing the shape to (1, max_len, d_model)
+        )  # Add a batch dimension, changing the shape to (1, max_len, hidden_size)
         self.register_buffer(
             "pe", pe
         )  # Register the positional encodings as a buffer, which will not be updated as model parameters
@@ -81,10 +81,10 @@ class TSTEncoder(nn.Module):
 
     def __init__(
         self,
-        patch_len: int = 16,
-        n_layers: int = 3,
-        d_model: int = 128,
-        n_heads: int = 16,
+        patch_size: int = 16,
+        num_layers: int = 3,
+        hidden_size: int = 128,
+        num_heads: int = 16,
         d_k: int = None,
         d_v: int = None,
         d_ff: int = 256,
@@ -97,24 +97,24 @@ class TSTEncoder(nn.Module):
     ) -> None:
         super().__init__()
         # The Linear layer to project the input patches to the model dimension
-        self.W_P = nn.Linear(patch_len, d_model)
+        self.W_P = nn.Linear(patch_size, hidden_size)
 
         # Positional encoding
-        self.pe = PositionalEmbedding(d_model=d_model)
+        self.pe = PositionalEmbedding(hidden_size=hidden_size)
 
         # Residual dropout
         self.dropout = nn.Dropout(dropout)
 
         # Create the [CLS] token
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_size))
         self.cls_mask = nn.Parameter(torch.ones(1, 1).bool(), requires_grad=False)
 
         # Create the encoder layer of the model backbone
         self.layers = nn.ModuleList(
             [
                 TSTEncoderLayer(
-                    d_model=d_model,
-                    n_heads=n_heads,
+                    hidden_size=hidden_size,
+                    num_heads=num_heads,
                     d_k=d_k,
                     d_v=d_v,
                     d_ff=d_ff,
@@ -125,7 +125,7 @@ class TSTEncoder(nn.Module):
                     pre_norm=pre_norm,
                     store_attn=store_attn,
                 )
-                for _ in range(n_layers)
+                for _ in range(num_layers)
             ]
         )
 
@@ -144,7 +144,7 @@ class TSTEncoder(nn.Module):
 
     def forward(
         self,
-        x: Tensor,  # x: [batch_size, patch_num, patch_len]
+        x: Tensor,  # x: [batch_size, patch_num, patch_size]
         attn_mask: Optional[Tensor] = None,  # attn_mask: [batch, num_patch]
     ) -> Tensor:
         batch_size = x.size(0)
@@ -163,7 +163,7 @@ class TSTEncoder(nn.Module):
 
         # Add the positional embedding
         x = self.pe(x)
-        x = self.dropout(x)  # x: [batch_size, patch_num, d_model]
+        x = self.dropout(x)  # x: [batch_size, patch_num, hidden_size]
 
         for mod in self.layers:
             x = mod(x, attn_mask=attn_mask)
@@ -176,8 +176,8 @@ class TSTEncoderLayer(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
-        n_heads: int,
+        hidden_size: int,
+        num_heads: int,
         d_k: int = None,
         d_v: int = None,
         d_ff: int = 256,
@@ -192,42 +192,47 @@ class TSTEncoderLayer(nn.Module):
         super(TSTEncoderLayer, self).__init__()
 
         assert (
-            not d_model % n_heads
-        ), f"d_model ({d_model}) must be divisible by n_heads ({n_heads})"
+            not hidden_size % num_heads
+        ), f"hidden_size ({hidden_size}) must be divisible by num_heads ({num_heads})"
         # If not specified, the number of heads is divided
-        d_k = d_model // n_heads if d_k is None else d_k
-        d_v = d_model // n_heads if d_v is None else d_v
+        d_k = hidden_size // num_heads if d_k is None else d_k
+        d_v = hidden_size // num_heads if d_v is None else d_v
 
         # Create the multi-head attention
         self.self_attn = MultiHeadAttention(
-            d_model, n_heads, d_k, d_v, attn_dropout=attn_dropout, proj_dropout=dropout
+            hidden_size,
+            num_heads,
+            d_k,
+            d_v,
+            attn_dropout=attn_dropout,
+            proj_dropout=dropout,
         )
 
         # Add & Norm
         self.dropout_attn = nn.Dropout(dropout)
         if "batch" in norm.lower():
             self.norm_attn = nn.Sequential(
-                Transpose(1, 2), nn.BatchNorm1d(d_model), Transpose(1, 2)
+                Transpose(1, 2), nn.BatchNorm1d(hidden_size), Transpose(1, 2)
             )
         else:
-            self.norm_attn = nn.LayerNorm(d_model)
+            self.norm_attn = nn.LayerNorm(hidden_size)
 
         # Position-wise Feed-Forward
         self.ff = nn.Sequential(
-            nn.Linear(d_model, d_ff, bias=bias),
+            nn.Linear(hidden_size, d_ff, bias=bias),
             get_activation_fn(activation),
             nn.Dropout(dropout),
-            nn.Linear(d_ff, d_model, bias=bias),
+            nn.Linear(d_ff, hidden_size, bias=bias),
         )
 
         # Add & Norm
         self.dropout_ffn = nn.Dropout(dropout)
         if "batch" in norm.lower():
             self.norm_ffn = nn.Sequential(
-                Transpose(1, 2), nn.BatchNorm1d(d_model), Transpose(1, 2)
+                Transpose(1, 2), nn.BatchNorm1d(hidden_size), Transpose(1, 2)
             )
         else:
-            self.norm_ffn = nn.LayerNorm(d_model)
+            self.norm_ffn = nn.LayerNorm(hidden_size)
 
         # use pre-norm or not
         self.pre_norm = pre_norm
@@ -273,8 +278,8 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
-        n_heads: int,
+        hidden_size: int,
+        num_heads: int,
         d_k: int = None,
         d_v: int = None,
         attn_dropout: float = 0.0,
@@ -283,28 +288,28 @@ class MultiHeadAttention(nn.Module):
     ) -> None:
         """Multi Head Attention Layer
         Input shape:
-            Q:       [batch_size (bs) x max_q_len x d_model]
-            K, V:    [batch_size (bs) x q_len x d_model]
+            Q:       [batch_size (bs) x max_q_len x hidden_size]
+            K, V:    [batch_size (bs) x q_len x hidden_size]
             mask:    [q_len x q_len]
         """
         super().__init__()
-        d_k = d_model // n_heads if d_k is None else d_k
-        d_v = d_model // n_heads if d_v is None else d_v
+        d_k = hidden_size // num_heads if d_k is None else d_k
+        d_v = hidden_size // num_heads if d_v is None else d_v
 
-        self.n_heads, self.d_k, self.d_v = n_heads, d_k, d_v
+        self.num_heads, self.d_k, self.d_v = num_heads, d_k, d_v
 
-        self.W_Q = nn.Linear(d_model, d_k * n_heads, bias=qkv_bias)
-        self.W_K = nn.Linear(d_model, d_k * n_heads, bias=qkv_bias)
-        self.W_V = nn.Linear(d_model, d_v * n_heads, bias=qkv_bias)
+        self.W_Q = nn.Linear(hidden_size, d_k * num_heads, bias=qkv_bias)
+        self.W_K = nn.Linear(hidden_size, d_k * num_heads, bias=qkv_bias)
+        self.W_V = nn.Linear(hidden_size, d_v * num_heads, bias=qkv_bias)
 
         # Scaled Dot-Product Attention (multiple heads)
         self.sdp_attn = _ScaledDotProductAttention(
-            d_model, n_heads, attn_dropout=attn_dropout
+            hidden_size, num_heads, attn_dropout=attn_dropout
         )
 
         # Project output
         self.to_out = nn.Sequential(
-            nn.Linear(n_heads * d_v, d_model), nn.Dropout(proj_dropout)
+            nn.Linear(num_heads * d_v, hidden_size), nn.Dropout(proj_dropout)
         )
 
     def forward(
@@ -321,16 +326,16 @@ class MultiHeadAttention(nn.Module):
             v = q
 
         # Linear (+ split in multiple heads)
-        q_s = self.W_Q(q).view(bs, -1, self.n_heads, self.d_k).transpose(1, 2)
-        k_s = self.W_K(k).view(bs, -1, self.n_heads, self.d_k).permute(0, 2, 3, 1)
-        v_s = self.W_V(v).view(bs, -1, self.n_heads, self.d_v).transpose(1, 2)
+        q_s = self.W_Q(q).view(bs, -1, self.num_heads, self.d_k).transpose(1, 2)
+        k_s = self.W_K(k).view(bs, -1, self.num_heads, self.d_k).permute(0, 2, 3, 1)
+        v_s = self.W_V(v).view(bs, -1, self.num_heads, self.d_v).transpose(1, 2)
 
         # Apply Scaled Dot-Product Attention (multiple heads)
         output, attn_weights = self.sdp_attn(q_s, k_s, v_s, attn_mask=attn_mask)
 
         # back to the original inputs dimensions
         output = (
-            output.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * self.d_v)
+            output.transpose(1, 2).contiguous().view(bs, -1, self.num_heads * self.d_v)
         )
         output = self.to_out(output)
 
@@ -344,25 +349,25 @@ class _ScaledDotProductAttention(nn.Module):
 
     def __init__(
         self,
-        d_model: int,
-        n_heads: int,
+        hidden_size: int,
+        num_heads: int,
         attn_dropout: float = 0.0,
         res_attention: bool = False,
     ):
         super().__init__()
         self.attn_dropout = nn.Dropout(attn_dropout)
         self.res_attention = res_attention
-        head_dim = d_model // n_heads
+        head_dim = hidden_size // num_heads
         self.scale = nn.Parameter(torch.tensor(head_dim**-0.5), requires_grad=False)
 
     def forward(
         self, q: Tensor, k: Tensor, v: Tensor, attn_mask: Optional[Tensor] = None
     ) -> Union[Tuple[Tensor, Tensor, Tensor], Tuple[Tensor, Tensor]]:
         """
-        :param q: [batch_size, n_heads, num_token, d_k]
-        :param k: [batch_size, n_heads, d_k, num_token]
-        :param v: [batch_size, n_heads, num_token, d_k]
-        :param attn_mask: [batch_size, n_heads, num_token]
+        :param q: [batch_size, num_heads, num_token, d_k]
+        :param k: [batch_size, num_heads, d_k, num_token]
+        :param v: [batch_size, num_heads, num_token, d_k]
+        :param attn_mask: [batch_size, num_heads, num_token]
         """
 
         # Scaled MatMul (q, k) - similarity scores for all pairs of positions in an input sequence

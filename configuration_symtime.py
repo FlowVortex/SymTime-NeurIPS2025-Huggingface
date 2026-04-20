@@ -48,8 +48,9 @@ class SymTimeConfig(PretrainedConfig):
         dropout: float = 0.0,
         act: str = "gelu",
         pre_norm: bool = True,
+        initializer_factor: float = 0.05,
         **kwargs,
-    ):
+    ) -> None:
         self.patch_size = patch_size
         self.num_layers = num_layers
         self.d_model = d_model
@@ -60,5 +61,6 @@ class SymTimeConfig(PretrainedConfig):
         self.dropout = dropout
         self.act = act
         self.pre_norm = pre_norm
+        self.initializer_factor = initializer_factor
 
         super().__init__(**kwargs)
