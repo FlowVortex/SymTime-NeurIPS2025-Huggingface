@@ -142,15 +142,33 @@ class SymTimeModel(PreTrainedModel):
                         nn.init.zeros_(submodule.bias)
 
     def patching(self, time_series: torch.Tensor) -> torch.Tensor:
-        """Divide the time series into patch"""
-        # Get the shape of the time series
+        """Split a raw 1D time series into overlapping or non-overlapping patches.
+
+        The encoder does not operate directly on the full sequence. Instead, it
+        first converts the input into a sequence of local windows, where each
+        window has length ``self.patch_size`` and consecutive windows are shifted
+        by ``self.stride``. This patch-based representation reduces the temporal
+        resolution while preserving local patterns that are useful for attention
+        layers.
+
+        If the sequence length is not compatible with the patch size, we pad the
+        sequence on the right using replication padding so that the final patch
+        extraction remains well-defined.
+        """
+
+        # Unpack the input shape for clarity: each sample is a 1D signal.
         batch_size, seq_length = time_series.shape
 
-        # Check whether the sequence length is divisible by the patch size
+        # When the sequence length cannot be evenly covered by the patch size,
+        # extend the sequence with replicated boundary values. This avoids
+        # discarding the tail of the signal and keeps the patching procedure
+        # consistent for every batch element.
         if seq_length % self.patch_size != 0:
-            # Do padding to the time series
             time_series = self.padding_patch_layer(time_series)
 
+        # Convert the padded sequence into a patch tensor using a sliding window.
+        # The resulting tensor contains local segments sampled along the last
+        # dimension, which will be consumed by the transformer encoder.
         time_series = time_series.unfold(
             dimension=-1, size=self.patch_size, step=self.stride
         )
@@ -160,13 +178,35 @@ class SymTimeModel(PreTrainedModel):
     def forward(
         self, x: Tensor, return_cls_token: bool = True
     ) -> Tuple[Tensor, Tensor]:
-        # Check the input time series is a 2D tensor
+        """Run the full SymTime inference pipeline.
+
+        The forward pass expects a 2D tensor of shape ``[batch_size, seq_length]``
+        containing a batch of univariate time series. The input is first converted
+        into patch embeddings through :meth:`patching`, and the resulting patch
+        sequence is then passed into the transformer encoder.
+
+        Parameters
+        ----------
+        x : Tensor
+            Batched input time series with shape ``[batch_size, seq_length]``.
+        return_cls_token : bool, optional
+            If ``True``, the encoder also returns the learned CLS token output
+            alongside the patch-level representations. This is useful when the
+            downstream task needs a global sequence summary.
+
+        Returns
+        -------
+        Tuple[Tensor, Tensor]
+            The encoded patch sequence and, optionally, the CLS token output.
+        """
+
+        # Validate that the input follows the expected batch-by-time layout.
         assert (
             x.dim() == 2
         ), "Input time series must be a 2D tensor with shape of [batch_size, seq_length]."
 
-        # Patching the input time series
+        # Convert the raw signal into a patch-based representation before encoding.
         time_series = self.patching(x)
 
-        # Encode the input time series
+        # Feed the patch sequence into the transformer encoder and return its output.
         return self.encoder(time_series, return_cls_token=return_cls_token)
