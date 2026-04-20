@@ -39,15 +39,14 @@ class SymTimeConfig(PretrainedConfig):
     def __init__(
         self,
         patch_size: int = 16,
-        num_layers: int = 3,
-        d_model: int = 128,
-        d_ff: int = 256,
-        num_heads: int = 16,
+        num_layers: int = 6,
+        d_model: int = 512,
+        d_ff: int = 2048,
+        num_heads: int = 8,
         norm: str = "BatchNorm",
-        attn_dropout: float = 0.0,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         act: str = "gelu",
-        pre_norm: bool = True,
+        pre_norm: bool = False,
         initializer_factor: float = 0.05,
         **kwargs,
     ) -> None:
@@ -57,7 +56,6 @@ class SymTimeConfig(PretrainedConfig):
         self.num_heads = num_heads
         self.d_ff = d_ff
         self.norm = norm
-        self.attn_dropout = attn_dropout
         self.dropout = dropout
         self.act = act
         self.pre_norm = pre_norm

@@ -1,0 +1,23 @@
+
+{
+  "architectures": [
+      "SymTimeModel"
+    ],
+  "_name_or_path": "FlowVortex/SymTime",
+  "auto_map": {
+    "AutoConfig": "configuration_symtime.SymTimeConfig",
+    "AutoModel": "model.SymTimeModel"
+  },
+  "patch_size": 16,
+  "num_layers": 6,
+  "d_model": 512,
+  "d_ff": 2048,
+  "num_heads": 8,
+  "norm": "BatchNorm",
+  "dropout": 0.1,
+  "act": "gelu",
+  "pre_norm": false,
+  "initializer_factor": 0.05,
+  "model_type": "time_series_transformer",
+  "torch_dtype": "float32"
+}
