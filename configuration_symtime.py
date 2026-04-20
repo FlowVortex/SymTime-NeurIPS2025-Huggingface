@@ -34,7 +34,7 @@ class SymTimeConfig(PretrainedConfig):
         Whether to use pre-norm for the encoder.
     """
 
-    model_type = "time_series_transformer"
+    model_type = "symtime"
 
     def __init__(
         self,
