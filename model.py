@@ -41,6 +41,11 @@ class SymTimeModel(PreTrainedModel):
     def __init__(self, config: SymTimeConfig):
         super().__init__(config)
         self.config = config
+
+        self.patch_size = config.patch_size
+        self.stride = config.stride
+
+        self.padding_patch_layer = nn.ReplicationPad1d((0, self.stride))
         self.encoder = TSTEncoder(
             patch_size=config.patch_size,
             num_layers=config.num_layers,
@@ -136,7 +141,32 @@ class SymTimeModel(PreTrainedModel):
                     if submodule.bias is not None:
                         nn.init.zeros_(submodule.bias)
 
+    def patching(self, time_series: torch.Tensor) -> torch.Tensor:
+        """Divide the time series into patch"""
+        # Get the shape of the time series
+        batch_size, seq_length = time_series.shape
+
+        # Check whether the sequence length is divisible by the patch size
+        if seq_length % self.patch_size != 0:
+            # Do padding to the time series
+            time_series = self.padding_patch_layer(time_series)
+
+        time_series = time_series.unfold(
+            dimension=-1, size=self.patch_size, step=self.stride
+        )
+
+        return time_series
+
     def forward(
         self, x: Tensor, return_cls_token: bool = True
     ) -> Tuple[Tensor, Tensor]:
-        return self.encoder(x, return_cls_token=return_cls_token)
+        # Check the input time series is a 2D tensor
+        assert (
+            x.dim() == 2
+        ), "Input time series must be a 2D tensor with shape of [batch_size, seq_length]."
+
+        # Patching the input time series
+        time_series = self.patching(x)
+
+        # Encode the input time series
+        return self.encoder(time_series, return_cls_token=return_cls_token)
