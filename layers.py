@@ -10,7 +10,20 @@ from einops import rearrange
 
 
 def get_activation_fn(activation: Union[str, Callable]) -> nn.Module:
-    """Select the activation function to use."""
+    """
+    Select the activation function to use.
+
+    Parameters
+    ----------
+    activation : Union[str, Callable]
+        The activation specification to resolve. It can be a string such as
+        "relu" or "gelu", or a callable that returns an activation module.
+
+    Return
+    ------
+    nn.Module
+        The corresponding activation module instance.
+    """
     if callable(activation):
         return activation()
     elif activation.lower() == "relu":
@@ -23,7 +36,20 @@ def get_activation_fn(activation: Union[str, Callable]) -> nn.Module:
 
 
 class Transpose(nn.Module):
-    """Transpose the dimensions of the input tensor"""
+    """Transpose the dimensions of the input tensor.
+
+    Parameters
+    ----------
+    *dims : int
+        The dimensions passed to `torch.Tensor.transpose`.
+    contiguous : bool, optional
+        Whether to return a contiguous tensor after transposing, by default False.
+
+    Return
+    ------
+    Tensor
+        The transposed tensor.
+    """
 
     def __init__(self, *dims, contiguous=False) -> None:
         super().__init__()
