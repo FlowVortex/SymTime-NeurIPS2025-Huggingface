@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -5,7 +7,7 @@ from einops import rearrange, repeat
 from transformers.modeling_utils import PreTrainedModel
 
 from configuration_symtime import SymTimeConfig
-from layers import TSTEncoder
+from layers import MultiHeadAttention, TSTEncoder, TSTEncoderLayer
 
 
 class SymTimeModel(PreTrainedModel):
@@ -29,96 +31,83 @@ class SymTimeModel(PreTrainedModel):
         self.post_init()
 
     def _init_weights(self, module) -> None:
-        """
-        Initialize the weights of the `LiteSpecFormer` model.
-        Including the initialization of the weights of the LayerNorm layer in the Transformer backbone,
-        the weights of the RMSNorm layer in the Feedforward Network,
-        and the weights of the depthwise and pointwise CNN in the Feedforward Network.
+        """Initialize weights for the SymTime encoder stack.
+
+        The model is built on top of Hugging Face `PreTrainedModel`, so this method
+        is called recursively via `post_init()`. We keep the initialization aligned
+        with the current backbone structure in `layers.py`:
+
+        - `TSTEncoder.W_P`: patch projection linear layer
+        - `TSTEncoder.cls_token`: learnable CLS token
+        - `TSTEncoderLayer.self_attn`: Q/K/V and output projections
+        - `TSTEncoderLayer.ff`: feed-forward linear layers
+        - `LayerNorm` / `BatchNorm1d`: normalization layers
         """
         super()._init_weights(module)
 
-        # Upload the factor for model initialization
         factor = self.config.initializer_factor
+        d_model = self.config.d_model
+        num_heads = self.config.num_heads
+        d_k = d_model // num_heads
+        d_v = d_k
 
-        if isinstance(module, nn.BatchNorm):
-            # Initialize the weights of the LayerNorm in the Transformer backbone
-            module.weight.data.fill_(factor * 1.0)
-
-        elif isinstance(module, nn.Conv1d):
-            # Initialize the depthwise and pointwise CNN in the Feedforward Network
-
-            # Initialize the weights of the depthwise convolution
-            module.weight.data.normal_(
-                mean=0.0, std=factor * ((self.config.d_model) ** -0.5)
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(
+                module.weight, mean=0.0, std=factor * (module.in_features**-0.5)
             )
-            # Initialize the biases of the depthwise convolution
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
 
-            # Initialize the weights of the pointwise convolution
-            module.weight.data.normal_(
-                mean=0.0, std=factor * ((self.config.d_model) ** -0.5)
-            )
-            # Initialize the biases of the pointwise convolution
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            nn.init.ones_(module.weight)
+            nn.init.zeros_(module.bias)
+
+        elif isinstance(module, nn.BatchNorm1d):
+            if module.weight is not None:
+                nn.init.ones_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+        elif isinstance(module, TSTEncoder):
+            if hasattr(module, "cls_token") and module.cls_token is not None:
+                nn.init.normal_(module.cls_token, mean=0.0, std=factor)
+            if hasattr(module, "W_P") and isinstance(module.W_P, nn.Linear):
+                nn.init.normal_(
+                    module.W_P.weight,
+                    mean=0.0,
+                    std=factor * (module.W_P.in_features**-0.5),
+                )
+                if module.W_P.bias is not None:
+                    nn.init.zeros_(module.W_P.bias)
 
         elif isinstance(module, MultiHeadAttention):
-            # Initialize the weights of the query, key, and value layers
+            nn.init.normal_(module.W_Q.weight, mean=0.0, std=factor * (d_model**-0.5))
+            nn.init.normal_(module.W_K.weight, mean=0.0, std=factor * (d_model**-0.5))
+            nn.init.normal_(module.W_V.weight, mean=0.0, std=factor * (d_model**-0.5))
+            if module.W_Q.bias is not None:
+                nn.init.zeros_(module.W_Q.bias)
+            if module.W_K.bias is not None:
+                nn.init.zeros_(module.W_K.bias)
+            if module.W_V.bias is not None:
+                nn.init.zeros_(module.W_V.bias)
 
-            # Upload the factor for model initialization
-            d_model = self.config.d_model
-            kv_proj_dim = self.config.d_kv
-            n_heads = self.config.num_heads
-
-            # Initialize the weights of the query, key, and value layers
-            module.q.weight.data.normal_(
-                mean=0.0, std=factor * ((d_model * kv_proj_dim) ** -0.5)
+            out_proj = module.to_out[0]
+            nn.init.normal_(
+                out_proj.weight, mean=0.0, std=factor * ((num_heads * d_v) ** -0.5)
             )
-            module.k.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
-            module.v.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
-            # The finnal projection layer
-            module.o.weight.data.normal_(
-                mean=0.0, std=factor * ((n_heads * kv_proj_dim) ** -0.5)
-            )
+            if out_proj.bias is not None:
+                nn.init.zeros_(out_proj.bias)
 
-        elif isinstance(module, LiteSpecFormerModel):
-            # Initialize the weights of the learnable embedding layer
-            if self.forecasting_config.use_reg_token:
-                module.shared.weight.data.normal_(mean=0.0, std=factor * 1.0)
-
-        elif isinstance(module, ResidualBlock):
-            # Initialize the weights of the embedding and output layers
-            module.hidden_layer.weight.data.normal_(
-                mean=0.0,
-                std=factor * (module.hidden_layer.weight.size(-1) ** -0.5),
-            )
-            if (
-                hasattr(module.hidden_layer, "bias")
-                and module.hidden_layer.bias is not None
-            ):
-                module.hidden_layer.bias.data.zero_()
-
-            # The hidden residual layer
-            module.residual_layer.weight.data.normal_(
-                mean=0.0,
-                std=factor * (module.residual_layer.weight.size(-1) ** -0.5),
-            )
-            if (
-                hasattr(module.residual_layer, "bias")
-                and module.residual_layer.bias is not None
-            ):
-                module.residual_layer.bias.data.zero_()
-
-            # The final output layer for the time series forecasting
-            module.output_layer.weight.data.normal_(
-                mean=0.0, std=factor * (module.output_layer.weight.size(-1) ** -0.5)
-            )
-            if (
-                hasattr(module.output_layer, "bias")
-                and module.output_layer.bias is not None
-            ):
-                module.output_layer.bias.data.zero_()
+        elif isinstance(module, TSTEncoderLayer):
+            for submodule in module.ff:
+                if isinstance(submodule, nn.Linear):
+                    nn.init.normal_(
+                        submodule.weight,
+                        mean=0.0,
+                        std=factor * (submodule.in_features**-0.5),
+                    )
+                    if submodule.bias is not None:
+                        nn.init.zeros_(submodule.bias)
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         return self.encoder(x)
