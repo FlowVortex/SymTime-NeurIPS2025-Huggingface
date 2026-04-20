@@ -134,5 +134,7 @@ class SymTimeModel(PreTrainedModel):
                     if submodule.bias is not None:
                         nn.init.zeros_(submodule.bias)
 
-    def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
-        return self.encoder(x)
+    def forward(
+        self, x: Tensor, return_cls_token: bool = True
+    ) -> Tuple[Tensor, Tensor]:
+        return self.encoder(x, return_cls_token=return_cls_token)

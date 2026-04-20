@@ -146,7 +146,9 @@ class TSTEncoder(nn.Module):
         self,
         x: Tensor,  # x: [batch_size, patch_num, patch_size]
         attn_mask: Optional[Tensor] = None,  # attn_mask: [batch, num_patch]
+        return_cls_token: bool = True,  # whether to return the CLS token
     ) -> Tensor:
+        """ """
         batch_size = x.size(0)
 
         # Input patching embedding
@@ -167,6 +169,10 @@ class TSTEncoder(nn.Module):
 
         for mod in self.layers:
             x = mod(x, attn_mask=attn_mask)
+
+        if not return_cls_token:
+            # If not returning the CLS token, remove it from the output
+            return x[:, 1:, :]
 
         return x
 
