@@ -36,6 +36,8 @@ class SymTimeModel(PreTrainedModel):
         Initialize weights for the SymTime encoder stack.
     """
 
+    config_class = SymTimeConfig
+
     def __init__(self, config: SymTimeConfig):
         super().__init__(config)
         self.config = config
