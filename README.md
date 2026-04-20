@@ -1,18 +1,3 @@
----
-license: apache-2.0
-metrics:
-- mse
-- mae
-tags:
-- time series
-- forecasting
-- foundation models
-- pretrained models
-- generative models
-- time series foundation models
-library_name: transformers
----
-
 # SymTime NeurIPS 2025
 
 This code is the official PyTorch implementation of our NeurIPS'25 paper: **Synthetic Series-Symbol Data Generation for Time Series Foundation Models**.
