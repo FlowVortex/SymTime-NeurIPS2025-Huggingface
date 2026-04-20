@@ -2,6 +2,7 @@ from typing import Tuple
 
 import torch
 import torch.nn as nn
+from torch import Tensor
 from torch.nn import functional as F
 from einops import rearrange, repeat
 from transformers.modeling_utils import PreTrainedModel
@@ -11,6 +12,30 @@ from layers import MultiHeadAttention, TSTEncoder, TSTEncoderLayer
 
 
 class SymTimeModel(PreTrainedModel):
+    """
+    SymTime Model for Huggingface.
+
+    Parameters
+    ----------
+    config: SymTimeConfig
+        The configuration of the SymTime model.
+
+    Attributes
+    ----------
+    config: SymTimeConfig
+        The configuration of the SymTime model.
+    encoder: TSTEncoder
+        The encoder of the SymTime model.
+
+    Methods
+    -------
+    forward(x: Tensor) -> Tuple[Tensor, Tensor]:
+        Forward pass of the SymTime model.
+
+    _init_weights(module: nn.Module) -> None:
+        Initialize weights for the SymTime encoder stack.
+    """
+
     def __init__(self, config: SymTimeConfig):
         super().__init__(config)
         self.config = config
